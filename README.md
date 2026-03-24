@@ -1,11 +1,11 @@
-﻿# Mini Social API
+# Mini Social API
 
 `Mini Social API` — це MVP backend-сервіс соціальної платформи.
 
 Реалізовано:
 - реєстрацію та авторизацію користувачів;
 - роботу з постами;
-- лайки/анлайки з ідемпотентною поведінкою;
+- ідемпотентні лайки/анлайки;
 - нотифікації про лайки через RabbitMQ + окремий worker.
 
 ## Технології
@@ -21,9 +21,8 @@
 
 ## Швидкий запуск
 
-1. Заповніть `.env` просто зміннивши `.env.example`:
-2. Далі переіменуйте дані для підключення до БД. Для прикладу можна використовувати ці дані: 
-Просто скопіюйте і вставте наступні рядки:
+1. Скопіюйте `.env.example` в `.env`.
+2. Заповніть змінні підключення до БД (можна взяти із цього прикладу).
 ```
 DB_USER=postgres
 DB_PASSWORD=postgres
@@ -31,7 +30,7 @@ DB_NAME=postgres
 DB_HOST=db
 DB_PORT=5432
 ```
-3. Запустіть сервіс:
+3. Запустіть сервіси:
 
 ```bash
 docker compose up --build
@@ -41,89 +40,195 @@ docker compose up --build
 - API: `http://localhost:8000`
 - Swagger: `http://localhost:8000/docs`
 
-## Основні можливості
+## Авторизація
+
+Для захищених ендпоінтів передавайте access token у заголовку:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+## API Reference
 
 ### Auth
 
-- реєстрація за `email + password`;
-- хешування пароля через `bcrypt`;
-- JWT: `access` + `refresh`;
-- оновлення токенів через `/auth/refresh`.
+`POST /auth/register`
+- Auth: не потрібен
+- Body:
+```json
+{
+  "email": "user@example.com",
+  "password": "string"
+}
+```
+- Response `201`:
+```json
+{
+  "id": 1,
+  "email": "user@example.com"
+}
+```
+
+`POST /auth/login`
+- Auth: не потрібен
+- Body:
+```json
+{
+  "email": "user@example.com",
+  "password": "string"
+}
+```
+- Response `200`:
+```json
+{
+  "access_token": "jwt_access_token",
+  "refresh_token": "jwt_refresh_token",
+  "token_type": "bearer"
+}
+```
+
+`POST /auth/refresh`
+- Auth: не потрібен
+- Body:
+```json
+{
+  "refresh_token": "jwt_refresh_token"
+}
+```
+- Response `200`: нова пара `access_token + refresh_token`.
 
 ### Posts
 
-- створення, отримання списку, отримання деталей;
-- редагування/видалення тільки автором;
-- soft delete (`deleted_at`);
-- фільтрація, пошук, сортування;
-- у відповіді: `author` та `likes_count`.
+`POST /posts/`
+- Auth: потрібен
+- Body:
+```json
+{
+  "title": "My first post",
+  "content": "Hello world"
+}
+```
+- Response `201`: об'єкт поста (`id`, `title`, `content`, `author`, `likes_count`).
+
+`GET /posts/`
+- Auth: не потрібен
+- Query params:
+  - `limit` — скільки постів повернути за один запит. За замовчуванням `10`, максимум `100`.
+  - `offset` — скільки постів пропустити від початку списку. Потрібно для пагінації.
+  - `author_id` — показати тільки пости конкретного автора.
+  - `search` — пошук постів за текстом у `title` і `content`.
+  - `sort` — за яким полем сортувати список: за датою створення або за кількістю лайків.
+  - `order` — напрямок сортування: від більшого до меншого або навпаки.
+  - `include_deleted` — чи включати в результат soft-deleted пости.
+- Response `200`: список постів.
+
+`GET /posts/{post_id}`
+- Auth: не потрібен
+- Path params:
+  - `post_id` — ідентифікатор поста.
+- Query params:
+  - `include_deleted` — чи дозволено повертати soft-deleted пост.
+- Response `200`: деталі поста.
+
+`PATCH /posts/{post_id}`
+- Auth: потрібен (лише автор поста)
+- Path params:
+  - `post_id` (`int`)
+- Body (можна передати будь-яке поле):
+```json
+{
+  "title": "Updated title",
+  "content": "Updated content"
+}
+```
+- Response `200`: оновлений пост.
+
+`DELETE /posts/{post_id}`
+- Auth: потрібен (лише автор поста)
+- Path params:
+  - `post_id` (`int`)
+- Body: не потрібен
+- Response `204`: без тіла.
 
 ### Likes
 
-- один користувач може лайкнути пост лише один раз;
-- лайк/анлайк ідемпотентні;
-- захист від дублювання лайків на рівні БД (`UNIQUE(user_id, post_id)`).
+`POST /posts/{post_id}/like`
+- Auth: потрібен
+- Path params:
+  - `post_id` (`int`)
+- Body: не потрібен
+- Response `200`:
+```json
+{
+  "status": "ok",
+  "action": "liked"
+}
+```
+або
+```json
+{
+  "status": "ok",
+  "action": "already_liked"
+}
+```
 
-### Notifications (RabbitMQ)
-
-- при лайку публікується подія `post_liked`;
-- worker читає подію та пише нотифікацію у таблицю `notifications`;
-- доступні ендпоінти:
-  - `GET /notifications/`
-  - `PATCH /notifications/{id}/read`
-
-## Ендпоінти
-
-### Auth
-
-- `POST /auth/register`
-- `POST /auth/login`
-- `POST /auth/refresh`
-
-### Posts
-
-- `POST /posts/`
-- `GET /posts/`
-- `GET /posts/{post_id}`
-- `PATCH /posts/{post_id}`
-- `DELETE /posts/{post_id}`
-- `POST /posts/{post_id}/like`
-- `DELETE /posts/{post_id}/like`
+`DELETE /posts/{post_id}/like`
+- Auth: потрібен
+- Path params:
+  - `post_id` (`int`)
+- Body: не потрібен
+- Response `200`:
+```json
+{
+  "status": "ok",
+  "action": "unlike"
+}
+```
+або
+```json
+{
+  "status": "ok",
+  "action": "already_unliked"
+}
+```
 
 ### Notifications
 
-- `GET /notifications/`
-- `PATCH /notifications/{notification_id}/read`
+`GET /notifications/`
+- Auth: потрібен
+- Body: не потрібен
+- Response `200`:
+```json
+[
+  {
+    "id": 1,
+    "post_id": 10,
+    "liked_by_user_id": 2,
+    "is_read": false,
+    "created_at": "2026-03-24T12:00:00Z"
+  }
+]
+```
 
-> Для сумісності також доступні префіксні роути `/api/v1/posts/*` і `/api/v1/notifications/*`.
-
-## Параметри `GET /posts/`
-
-- `limit` — кількість постів (1..100)
-- `offset` — зміщення
-- `author_id` — фільтр за автором
-- `search` — пошук у `title` та `content`
-- `sort` — `created_at | likes`
-- `order` — `asc | desc`
-- `include_deleted` — показувати soft-deleted пости (`true/false`)
-
-Для `GET /posts/{post_id}` також є `include_deleted=true/false`.
-
-## Приклад сценарію перевірки нотифікацій
-
-1. Користувач `A` створює пост.
-2. Користувач `B` ставить лайк посту `A`.
-3. Користувач `A` викликає `GET /notifications/` і бачить нову нотифікацію.
-4. Користувач `A` викликає `PATCH /notifications/{id}/read`.
+`PATCH /notifications/{notification_id}/read`
+- Auth: потрібен
+- Path params:
+  - `notification_id` (`int`)
+- Body: не потрібен
+- Response `200`:
+```json
+{
+  "message": "Позначено як прочитане"
+}
+```
 
 ## HTTP статуси
 
 - `200` — успішна операція
 - `201` — створено
-- `204` — видалено (soft delete)
+- `204` — видалено
 - `400` — невалідні дані
 - `401` — неавторизований
 - `403` — недостатньо прав
 - `404` — не знайдено
 - `409` — конфлікт (наприклад, email вже існує)
-
