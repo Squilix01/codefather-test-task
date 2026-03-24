@@ -24,7 +24,7 @@ class LikeService:
                 post_id=post_id,
             )
             if existing_like:
-                return {"status": "ok", "action": "вже_вподобано"}
+                return {"status": "ok", "action": "already_liked"}
 
             new_like = Like(user_id=user_id, post_id=post_id)
             await self.uow.likes.add(new_like)
@@ -40,9 +40,9 @@ class LikeService:
                     )
             except IntegrityError:
                 await self.uow.rollback()
-                return {"status": "ok", "action": "вже_вподобано"}
+                return {"status": "ok", "action": "already_liked"}
 
-            return {"status": "ok", "action": "вподобано"}
+            return {"status": "ok", "action": "liked"}
 
     async def unlike_post(self, user_id: int, post_id: int) -> dict:
         async with self.uow:
@@ -58,8 +58,8 @@ class LikeService:
                 post_id=post_id,
             )
             if not existing_like:
-                return {"status": "ok", "action": "вже_не_вподобано"}
+                return {"status": "ok", "action": "already_unliked"}
 
             await self.uow.likes.delete(existing_like)
             await self.uow.commit()
-            return {"status": "ok", "action": "не_вподобано"}
+            return {"status": "ok", "action": "unlike"}

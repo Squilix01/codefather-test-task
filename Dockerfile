@@ -19,6 +19,7 @@ RUN poetry config virtualenvs.create false && \
 
 COPY . .
 
+RUN sed -i 's/\r$//' /app/scripts/start_worker.sh
 
 CMD alembic upgrade head && \
     poetry run pytest -q && \
